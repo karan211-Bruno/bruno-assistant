@@ -10,4 +10,5 @@ contextBridge.exposeInMainWorld("brunoNative", {
       body: String(body || ""),
     });
   },
+  httpRequest: (opts) => ipcRenderer.invoke("bruno:http", opts),
 });

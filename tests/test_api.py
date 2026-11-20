@@ -203,3 +203,28 @@ def test_cors_headers_for_native_apps(client: TestClient) -> None:
     )
     assert preflight.status_code == 200
     assert preflight.headers.get("access-control-allow-origin") == "*"
+
+
+def test_access_token_auth_middleware(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_file = tmp_path / "auth_bruno.db"
+    monkeypatch.setenv("BRUNO_DB_PATH", str(db_file))
+    monkeypatch.setenv("BRUNO_ACCESS_TOKEN", "secret-token-xyz")
+    with TestClient(app) as auth_client:
+        health = auth_client.get("/api/health")
+        assert health.status_code == 200
+        assert health.json()["auth_required"] is True
+        assert health.json()["version"] == "0.2.0"
+
+        unauth = auth_client.get("/api/settings", headers={"Origin": "app://bruno"})
+        assert unauth.status_code == 401
+        assert unauth.headers.get("access-control-allow-origin") == "*"
+
+        bearer = auth_client.get(
+            "/api/settings", headers={"Authorization": "Bearer secret-token-xyz"}
+        )
+        assert bearer.status_code == 200
+
+        query_auth = auth_client.get("/api/conversations?token=secret-token-xyz")
+        assert query_auth.status_code == 200

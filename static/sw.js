@@ -1,4 +1,4 @@
-const CACHE_NAME = "bruno-ai-shell-v1";
+const CACHE_NAME = "bruno-ai-shell-v2";
 const SHELL_ASSETS = [
   "/",
   "/manifest.webmanifest",
@@ -6,6 +6,7 @@ const SHELL_ASSETS = [
   "/css/app.css",
   "/js/app.js",
   "/js/api.js",
+  "/js/standalone.js",
   "/js/ui.js",
   "/js/voice.js"
 ];

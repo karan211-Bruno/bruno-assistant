@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bruno-assistant"
-version = "0.1.0"
-description = "Bruno AI - Self-hosted personal AI assistant for phone, tablet, and desktop via Tailscale"
+version = "0.2.0"
+description = "Bruno AI - Personal AI assistant for phone, tablet, and desktop (Standalone & Remote Sync)"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

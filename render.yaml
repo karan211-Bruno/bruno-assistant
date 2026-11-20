@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: bruno-ai-assistant
+    runtime: docker
+    plan: starter
+    envVars:
+      - key: BRUNO_DB_PATH
+        value: /data/bruno.db
+      - key: BRUNO_ACCESS_TOKEN
+        generateValue: true
+    disk:
+      name: bruno-data
+      mountPath: /data
+      sizeGB: 1
+    healthCheckPath: /api/health

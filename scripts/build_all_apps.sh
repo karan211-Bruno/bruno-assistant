@@ -33,11 +33,21 @@ export ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
 export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
 (cd "$ROOT/apps/mobile/android" && ./gradlew assembleDebug)
 
-echo "==> [5/6] iPhone / iPad 유니버설 Xcode 빌드 검증"
+echo "==> [5/6] iPhone / iPad 유니버설 IPA 및 시뮬레이터 빌드"
 if command -v xcodebuild >/dev/null 2>&1; then
   (
     cd "$ROOT/apps/mobile/ios/App"
-    xcodebuild -project App.xcodeproj -scheme App -sdk iphonesimulator -configuration Debug CODE_SIGNING_ALLOWED=NO build | tail -n 10
+    rm -rf build-iphoneos build-sim Payload
+    xcodebuild -project App.xcodeproj -scheme App -sdk iphoneos -configuration Release CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CONFIGURATION_BUILD_DIR="$PWD/build-iphoneos" build | tail -n 10
+    mkdir -p Payload "$ROOT/dist-apps/iPhone-iPad"
+    cp -R build-iphoneos/App.app Payload/App.app
+    rm -f "$ROOT/dist-apps/iPhone-iPad/Bruno-AI-0.2.0-iPhone-iPad.ipa"
+    zip -qry "$ROOT/dist-apps/iPhone-iPad/Bruno-AI-0.2.0-iPhone-iPad.ipa" Payload
+    rm -rf Payload build-iphoneos
+
+    xcodebuild -project App.xcodeproj -scheme App -sdk iphonesimulator -configuration Debug CODE_SIGNING_ALLOWED=NO CONFIGURATION_BUILD_DIR="$PWD/build-sim" build | tail -n 10
+    (cd build-sim && rm -f "$ROOT/dist-apps/iPhone-iPad/Bruno-AI-0.2.0-iOS-Simulator.app.zip" && zip -qry "$ROOT/dist-apps/iPhone-iPad/Bruno-AI-0.2.0-iOS-Simulator.app.zip" App.app)
+    rm -rf build-sim
   )
 fi
 
@@ -49,7 +59,7 @@ cp -f "$ROOT/apps/desktop/dist/"*.dmg "$ROOT/dist-apps/macOS/" 2>/dev/null || tr
 cp -f "$ROOT/apps/desktop/dist/"*win*.zip "$ROOT/dist-apps/Windows/" 2>/dev/null || true
 cp -f "$ROOT/apps/desktop/dist/"*.AppImage "$ROOT/dist-apps/Linux/" 2>/dev/null || true
 cp -f "$ROOT/apps/desktop/dist/"*.tar.gz "$ROOT/dist-apps/Linux/" 2>/dev/null || true
-cp -f "$ROOT/apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk" "$ROOT/dist-apps/Android/Bruno-AI-0.1.0-android.apk"
+cp -f "$ROOT/apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk" "$ROOT/dist-apps/Android/Bruno-AI-0.2.0-android.apk"
 
 echo "✅ 전체 플랫폼 빌드 완료: $ROOT/dist-apps/"
 ls -lh "$ROOT/dist-apps/"*

@@ -2,8 +2,12 @@ import {
   api,
   apiUrl,
   connectEvents,
+  getAccessToken,
+  getConnectionMode,
   getServerBaseUrl,
   isNativeApp,
+  setAccessToken,
+  setConnectionMode,
   setServerBaseUrl,
 } from "./api.js";
 import { formatShortTime, renderSafeMarkdown, setupDialogs, showToast } from "./ui.js";
@@ -417,10 +421,24 @@ function renderMemoriesAndContacts() {
 
       const actions = document.createElement("div");
       actions.className = "toolbar";
+
+      const telDigits = String(ct.phone || "").replace(/[^+\d*#,;]/g, "");
+      if (telDigits) {
+        const directCallLink = document.createElement("a");
+        directCallLink.href = `tel:${telDigits}`;
+        directCallLink.className = "btn-secondary btn-sm";
+        directCallLink.textContent = "📱";
+        directCallLink.style.textDecoration = "none";
+        directCallLink.setAttribute("aria-label", `${ct.name}에게 직접 전화 걸기`);
+        directCallLink.title = "기기 전화 앱으로 바로 걸기";
+        actions.appendChild(directCallLink);
+      }
+
       const callBtn = document.createElement("button");
       callBtn.type = "button";
       callBtn.className = "btn-secondary btn-sm";
       callBtn.textContent = "📞";
+      callBtn.title = "AI 비서가 대신 전화 걸기";
       callBtn.setAttribute("aria-label", `${ct.name}에게 AI 전화 걸기`);
       callBtn.addEventListener("click", () => openCallDialog(ct));
 
@@ -449,6 +467,13 @@ function renderBrowserState() {
     urlInput.value = b.url;
   }
   if (!statusText || !img) return;
+
+  if (b.standalone || getConnectionMode() === "standalone") {
+    statusText.textContent =
+      "현재 '기기 단독 모드'입니다. 샌드박스 원격 브라우저 화면 공유는 ⚙️ 설정에서 '원격 서버 모드'(로컬 PC / Cloudflare Tunnel / Render 등)로 전환할 때 사용할 수 있습니다. 채팅·AI 전화·기억·연락처·일정은 단독 모드에서도 바로 동작합니다.";
+    img.hidden = true;
+    return;
+  }
 
   if (!b.available) {
     statusText.textContent =
@@ -578,10 +603,23 @@ async function openSettingsDialog() {
   const form = byId("settings-form");
   if (!dialog || !form) return;
 
+  const modeSelect = byId("connection-mode-select");
+  const remoteFields = byId("remote-server-fields");
   const serverInput = byId("server-url-input");
+  const tokenInput = byId("server-token-input");
   const testResult = byId("server-test-result");
+  const currentMode = getConnectionMode();
+  if (modeSelect) {
+    modeSelect.value = currentMode;
+  }
+  if (remoteFields) {
+    remoteFields.hidden = currentMode === "standalone";
+  }
   if (serverInput) {
     serverInput.value = getServerBaseUrl();
+  }
+  if (tokenInput) {
+    tokenInput.value = getAccessToken();
   }
   if (testResult) {
     testResult.textContent = "";
@@ -611,14 +649,17 @@ async function openSettingsDialog() {
 
   const healthBox = byId("settings-health-info");
   if (healthBox) {
-    const activeServer = getServerBaseUrl() || window.location.origin;
+    const activeServer =
+      currentMode === "standalone"
+        ? "이 기기 (Tailscale·서버 없이 단독 실행)"
+        : getServerBaseUrl() || window.location.origin;
     healthBox.textContent =
+      `실행 모드: ${currentMode === "standalone" ? "기기 단독 모드" : "원격 서버 모드"}\n` +
       `현재 연결 대상: ${activeServer}\n` +
-      `응답 서버 호스트: ${state.health.host || "미연결"}\n` +
-      `Tailscale 권장 주소: ${state.health.tailscale_hint || "https://bruno-sony.tail617e7a.ts.net"}\n` +
+      `응답 호스트: ${state.health.host || "미연결"}\n` +
       `활성 LLM 모드: ${state.health.active_llm_provider || "demo"}\n` +
       `전화 발신 모드: ${state.health.telephony_provider || "simulation"}\n` +
-      `Playwright 브라우저: ${state.health.playwright_available ? "사용 가능" : "미설치 (선택 설치)"}`;
+      `Playwright 브라우저: ${state.health.playwright_available ? "사용 가능" : "미설치 (원격 서버 전용)"}`;
   }
 
   dialog.showModal();
@@ -674,9 +715,26 @@ function bindEvents() {
   });
   byId("settings-cancel-btn")?.addEventListener("click", () => byId("settings-dialog")?.close());
 
+  byId("banner-standalone-btn")?.addEventListener("click", async () => {
+    state.bannerDismissed = false;
+    setConnectionMode("standalone");
+    hideConnectionBanner();
+    bindSSE();
+    await loadAllData();
+    showToast("기기 단독 모드로 전환했습니다 (Tailscale 불필요).");
+  });
+
+  byId("connection-mode-select")?.addEventListener("change", (e) => {
+    const remoteFields = byId("remote-server-fields");
+    if (remoteFields) {
+      remoteFields.hidden = e.target.value === "standalone";
+    }
+  });
+
   for (const btn of document.querySelectorAll("[data-preset-url]")) {
     btn.addEventListener("click", async () => {
       state.bannerDismissed = false;
+      setConnectionMode("remote");
       setServerBaseUrl(btn.dataset.presetUrl || "");
       bindSSE();
       await loadAllData();
@@ -693,10 +751,11 @@ function bindEvents() {
 
   byId("test-server-btn")?.addEventListener("click", async () => {
     const input = byId("server-url-input");
+    const tokenInput = byId("server-token-input");
     const out = byId("server-test-result");
     if (!input || !out) return;
     out.textContent = "연결 확인 중...";
-    const res = await api.testConnection(input.value);
+    const res = await api.testConnection(input.value, tokenInput?.value || "");
     if (res.ok) {
       out.textContent = `✅ 연결 성공! 호스트: ${res.data.host} (LLM: ${res.data.active_llm_provider})`;
     } else {
@@ -707,10 +766,22 @@ function bindEvents() {
   byId("settings-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const form = e.currentTarget;
+    const prevMode = getConnectionMode();
     const prevUrl = getServerBaseUrl();
+    const prevToken = getAccessToken();
+
+    const modeSelect = byId("connection-mode-select");
     const nextUrlInput = byId("server-url-input");
+    const nextTokenInput = byId("server-token-input");
+
+    if (modeSelect) {
+      setConnectionMode(modeSelect.value);
+    }
     if (nextUrlInput) {
       setServerBaseUrl(nextUrlInput.value);
+    }
+    if (nextTokenInput) {
+      setAccessToken(nextTokenInput.value);
     }
 
     const payload = {};
@@ -730,10 +801,14 @@ function bindEvents() {
       await api.saveSettings(payload);
       savedRemote = true;
     } catch (err) {
-      showToast(`서버 연결 전이라 서버 URL만 저장했습니다 (${err.message})`);
+      showToast(`서버 연결 전이라 연결 설정만 저장했습니다 (${err.message})`);
     }
 
-    if (prevUrl !== getServerBaseUrl()) {
+    if (
+      prevMode !== getConnectionMode() ||
+      prevUrl !== getServerBaseUrl() ||
+      prevToken !== getAccessToken()
+    ) {
       state.bannerDismissed = false;
       bindSSE();
     }
@@ -946,7 +1021,10 @@ function bindSSE() {
   const pill = byId("sse-status-pill");
   state.sseSource = connectEvents({
     onOpen() {
-      if (pill) pill.textContent = "실시간 동기화 중";
+      if (pill) {
+        pill.textContent =
+          getConnectionMode() === "standalone" ? "기기 단독 모드" : "실시간 동기화 중";
+      }
       hideConnectionBanner();
     },
     onError() {

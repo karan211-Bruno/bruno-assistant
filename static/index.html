@@ -82,9 +82,10 @@
           <p class="muted" id="connection-banner-desc"></p>
         </div>
         <div class="toolbar">
-          <button type="button" class="btn-primary btn-sm" data-preset-url="https://bruno-sony.tail617e7a.ts.net">bruno-sony (HTTPS)</button>
-          <button type="button" class="btn-secondary btn-sm" data-preset-url="http://100.93.138.87:8765">bruno-sony (IP)</button>
+          <button type="button" class="btn-primary btn-sm" id="banner-standalone-btn">📱 기기 단독 모드로 바로 쓰기</button>
           <button type="button" class="btn-secondary btn-sm" data-preset-url="http://127.0.0.1:8765">로컬 (127.0.0.1:8765)</button>
+          <button type="button" class="btn-secondary btn-sm" data-preset-url="https://bruno-sony.tail617e7a.ts.net">bruno-sony (HTTPS)</button>
+          <button type="button" class="btn-secondary btn-sm" data-preset-url="http://100.93.138.87:8765">bruno-sony (IP)</button>
           <button type="button" class="btn-secondary btn-sm" id="banner-open-settings-btn">직접 설정</button>
           <button type="button" class="btn-ghost btn-sm" id="banner-dismiss-btn" aria-label="배너 닫기">닫기</button>
         </div>
@@ -229,18 +230,31 @@
     </form>
     <form id="settings-form" class="dialog-body stack-gap">
       <fieldset class="card stack-gap">
-        <legend>🔗 연결 서버 주소 (네이티브 앱 / 원격 서버)</legend>
+        <legend>🔗 연결 모드 · Tailscale 없이 사용 가능</legend>
         <label class="field">
-          <span>Bruno AI 서버 URL (웹 브라우저 기본 사용 시 비워두기)</span>
-          <input type="url" id="server-url-input" autofocus placeholder="https://bruno-sony.tail617e7a.ts.net">
+          <span>실행 방식</span>
+          <select id="connection-mode-select" autofocus>
+            <option value="standalone">기기 단독 모드 (Tailscale·서버 불필요 · 권장)</option>
+            <option value="remote">원격 서버 모드 (다기기 실시간 동기화)</option>
+          </select>
         </label>
-        <div class="toolbar">
-          <button type="button" class="btn-secondary btn-sm" data-settings-preset="https://bruno-sony.tail617e7a.ts.net">bruno-sony HTTPS</button>
-          <button type="button" class="btn-secondary btn-sm" data-settings-preset="http://100.93.138.87:8765">bruno-sony IP</button>
-          <button type="button" class="btn-secondary btn-sm" data-settings-preset="http://127.0.0.1:8765">로컬 Mac/PC</button>
-          <button type="button" class="btn-primary btn-sm" id="test-server-btn">연결 테스트</button>
+        <div id="remote-server-fields" class="stack-gap">
+          <label class="field">
+            <span>원격 서버 URL (Cloudflare Tunnel · Render · 로컬 · Tailscale)</span>
+            <input type="url" id="server-url-input" placeholder="https://example.trycloudflare.com 또는 http://127.0.0.1:8765">
+          </label>
+          <label class="field">
+            <span>서버 접근 토큰 (BRUNO_ACCESS_TOKEN 설정 시)</span>
+            <input type="password" id="server-token-input" autocomplete="off" placeholder="비워두면 토큰 없이 접속">
+          </label>
+          <div class="toolbar">
+            <button type="button" class="btn-secondary btn-sm" data-settings-preset="http://127.0.0.1:8765">로컬 Mac/PC</button>
+            <button type="button" class="btn-secondary btn-sm" data-settings-preset="https://bruno-sony.tail617e7a.ts.net">bruno-sony HTTPS</button>
+            <button type="button" class="btn-secondary btn-sm" data-settings-preset="http://100.93.138.87:8765">bruno-sony IP</button>
+            <button type="button" class="btn-primary btn-sm" id="test-server-btn">연결 테스트</button>
+          </div>
+          <p class="muted" id="server-test-result"></p>
         </div>
-        <p class="muted" id="server-test-result"></p>
       </fieldset>
 
       <fieldset class="card stack-gap">

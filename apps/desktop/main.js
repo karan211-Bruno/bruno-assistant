@@ -149,6 +149,40 @@ if (!gotLock) {
       }
     });
 
+    ipcMain.handle("bruno:http", async (_evt, req) => {
+      const targetUrl = String(req?.url || "").trim();
+      let parsed;
+      try {
+        parsed = new URL(targetUrl);
+      } catch {
+        return { ok: false, status: 400, text: "Invalid URL" };
+      }
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        return { ok: false, status: 400, text: "Only http/https URLs are allowed" };
+      }
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 45000);
+      try {
+        const resp = await fetch(parsed.href, {
+          method: String(req?.method || "GET").toUpperCase(),
+          headers: req?.headers && typeof req.headers === "object" ? req.headers : {},
+          body: req?.body !== undefined && req?.body !== null ? String(req.body) : undefined,
+          signal: controller.signal,
+        });
+        const text = await resp.text();
+        return { ok: resp.ok, status: resp.status, text };
+      } catch (err) {
+        return {
+          ok: false,
+          status: 0,
+          text: err?.name === "AbortError" ? "Request timed out (45s)" : (err?.message || "Fetch error"),
+        };
+      } finally {
+        clearTimeout(timer);
+      }
+    });
+
     createWindow();
     setupTray();
 

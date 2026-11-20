@@ -110,6 +110,15 @@ def mask_secret(value: str) -> str:
     return "****" + s[-4:]
 
 
+def get_access_token() -> str:
+    """Return optional server access token from BRUNO_ACCESS_TOKEN env or .env."""
+    env_val = os.environ.get("BRUNO_ACCESS_TOKEN")
+    if env_val is not None and env_val.strip():
+        return env_val.strip()
+    dotenv_vals = _load_dotenv_file()
+    return str(dotenv_vals.get("BRUNO_ACCESS_TOKEN") or "").strip()
+
+
 def get_settings(include_secrets: bool = False) -> dict[str, Any]:
     """Load merged settings from defaults -> .env -> environment -> SQLite settings."""
     merged: dict[str, Any] = dict(DEFAULTS)

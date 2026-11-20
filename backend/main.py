@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import re
 import socket
@@ -12,13 +13,13 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, Response, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from backend import telephony
 from backend.agent import run_agent_turn
-from backend.config import get_settings, save_settings
+from backend.config import get_access_token, get_settings, save_settings
 from backend.db import (
     PROJECT_ROOT,
     db_session,
@@ -57,7 +58,29 @@ async def lifespan(_app: FastAPI):
         await browser_tools.browser_manager.shutdown()
 
 
-app = FastAPI(title="Bruno AI Assistant", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Bruno AI Assistant", version="0.2.0", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def verify_access_token(request: Request, call_next):
+    """Require BRUNO_ACCESS_TOKEN for /api/* routes when configured."""
+    token = get_access_token()
+    path = request.url.path
+    if (
+        token
+        and request.method != "OPTIONS"
+        and path.startswith("/api/")
+        and path != "/api/health"
+        and not path.startswith("/api/telephony/")
+    ):
+        auth_header = request.headers.get("authorization", "")
+        bearer = auth_header[7:].strip() if auth_header.lower().startswith("bearer ") else ""
+        query_token = (request.query_params.get("token") or "").strip()
+        provided = bearer or query_token
+        if not provided or not hmac.compare_digest(provided, token):
+            return JSONResponse(status_code=401, content={"detail": "인증 토큰이 필요합니다."})
+    return await call_next(request)
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -148,6 +171,8 @@ def api_health() -> dict[str, Any]:
     settings = get_settings(include_secrets=True)
     return {
         "ok": True,
+        "version": "0.2.0",
+        "auth_required": bool(get_access_token()),
         "host": socket.gethostname(),
         "tailscale_hint": "https://bruno-sony.tail617e7a.ts.net",
         "active_llm_provider": resolve_active_provider(settings),

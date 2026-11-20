@@ -1,17 +1,48 @@
 /**
- * REST + SSE client for Bruno AI backend with dynamic server support for native apps.
+ * Dual-mode API client:
+ * - "standalone": Runs 100% on-device via static/js/standalone.js (no Tailscale/server required)
+ * - "remote": Syncs with FastAPI backend over HTTPS / Cloudflare Tunnel / Render / LAN / Tailscale
  */
+
+import { createStandaloneBackend } from "./standalone.js";
 
 export const DEFAULT_REMOTE_URL = "https://bruno-sony.tail617e7a.ts.net";
 const SERVER_STORAGE_KEY = "bruno_server_url";
+const MODE_STORAGE_KEY = "bruno_connection_mode";
+const TOKEN_STORAGE_KEY = "bruno_access_token";
+
+const standalone = createStandaloneBackend();
 
 export function isNativeApp() {
   return Boolean(
     window.brunoNative?.isNative ||
       window.Capacitor?.isNativePlatform?.() ||
+      window.location.protocol === "app:" ||
       window.location.protocol === "file:" ||
       window.location.protocol === "capacitor:"
   );
+}
+
+export function getConnectionMode() {
+  try {
+    const saved = localStorage.getItem(MODE_STORAGE_KEY);
+    if (saved === "standalone" || saved === "remote") {
+      return saved;
+    }
+  } catch {
+    // ignore storage errors
+  }
+  return isNativeApp() ? "standalone" : "remote";
+}
+
+export function setConnectionMode(mode) {
+  const normalized = mode === "remote" ? "remote" : "standalone";
+  try {
+    localStorage.setItem(MODE_STORAGE_KEY, normalized);
+  } catch {
+    // ignore storage errors
+  }
+  return normalized;
 }
 
 export function normalizeServerUrl(url) {
@@ -49,22 +80,54 @@ export function setServerBaseUrl(url) {
   return getServerBaseUrl();
 }
 
+export function getAccessToken() {
+  try {
+    return String(localStorage.getItem(TOKEN_STORAGE_KEY) || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+export function setAccessToken(token) {
+  const clean = String(token || "").trim();
+  try {
+    if (clean) {
+      localStorage.setItem(TOKEN_STORAGE_KEY, clean);
+    } else {
+      localStorage.removeItem(TOKEN_STORAGE_KEY);
+    }
+  } catch {
+    // ignore storage errors
+  }
+  return clean;
+}
+
 export function apiUrl(path) {
   const p = String(path || "");
   if (!p) return getServerBaseUrl();
   if (/^https?:\/\//i.test(p)) return p;
   const base = getServerBaseUrl();
-  if (!base) return p;
-  return base + (p.startsWith("/") ? p : `/${p}`);
+  let full = base ? base + (p.startsWith("/") ? p : `/${p}`) : p;
+  const token = getAccessToken();
+  if (token && p.startsWith("/api/browser/screenshot/")) {
+    full += (full.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(token);
+  }
+  return full;
 }
 
 async function request(path, options = {}) {
+  const headers = {
+    "Content-Type": "application/json",
+    ...(options.headers || {}),
+  };
+  const token = getAccessToken();
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
   const res = await fetch(apiUrl(path), {
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
     ...options,
+    headers,
   });
   if (!res.ok) {
     let detail = `HTTP ${res.status}`;
@@ -80,8 +143,8 @@ async function request(path, options = {}) {
 }
 
 export const api = {
-  health: () => request("/api/health"),
-  async testConnection(baseUrl) {
+  health: () => (getConnectionMode() === "standalone" ? standalone.health() : request("/api/health")),
+  async testConnection(baseUrl, tokenOverride = getAccessToken()) {
     const clean = normalizeServerUrl(baseUrl);
     const target = clean ? `${clean}/api/health` : "/api/health";
     const controller = new AbortController();
@@ -92,6 +155,20 @@ export const api = {
         return { ok: false, error: `HTTP ${res.status}` };
       }
       const data = await res.json();
+      if (data?.auth_required) {
+        const tok = String(tokenOverride || "").trim();
+        const checkHeaders = tok ? { Authorization: `Bearer ${tok}` } : {};
+        const authRes = await fetch(clean ? `${clean}/api/settings` : "/api/settings", {
+          headers: checkHeaders,
+          signal: controller.signal,
+        });
+        if (!authRes.ok) {
+          return {
+            ok: false,
+            error: authRes.status === 401 ? "접근 토큰이 없거나 일치하지 않습니다 (401)" : `HTTP ${authRes.status}`,
+          };
+        }
+      }
       return { ok: Boolean(data?.ok), data };
     } catch (err) {
       return {
@@ -102,69 +179,130 @@ export const api = {
       clearTimeout(timer);
     }
   },
-  getSettings: () => request("/api/settings"),
+  getSettings: () =>
+    getConnectionMode() === "standalone" ? standalone.getSettings() : request("/api/settings"),
   saveSettings: (payload) =>
-    request("/api/settings", { method: "PUT", body: JSON.stringify(payload) }),
+    getConnectionMode() === "standalone"
+      ? standalone.saveSettings(payload)
+      : request("/api/settings", { method: "PUT", body: JSON.stringify(payload) }),
 
-  listConversations: () => request("/api/conversations"),
+  listConversations: () =>
+    getConnectionMode() === "standalone"
+      ? standalone.listConversations()
+      : request("/api/conversations"),
   createConversation: (title) =>
-    request("/api/conversations", { method: "POST", body: JSON.stringify({ title }) }),
+    getConnectionMode() === "standalone"
+      ? standalone.createConversation(title)
+      : request("/api/conversations", { method: "POST", body: JSON.stringify({ title }) }),
   deleteConversation: (id) =>
-    request(`/api/conversations/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    getConnectionMode() === "standalone"
+      ? standalone.deleteConversation(id)
+      : request(`/api/conversations/${encodeURIComponent(id)}`, { method: "DELETE" }),
 
-  getMessages: (convId) => request(`/api/conversations/${encodeURIComponent(convId)}/messages`),
+  getMessages: (convId) =>
+    getConnectionMode() === "standalone"
+      ? standalone.getMessages(convId)
+      : request(`/api/conversations/${encodeURIComponent(convId)}/messages`),
   sendChat: (conversationId, message) =>
-    request("/api/chat", {
-      method: "POST",
-      body: JSON.stringify({ conversation_id: conversationId, message }),
-    }),
+    getConnectionMode() === "standalone"
+      ? standalone.sendChat(conversationId, message)
+      : request("/api/chat", {
+          method: "POST",
+          body: JSON.stringify({ conversation_id: conversationId, message }),
+        }),
 
-  listApprovals: () => request("/api/approvals"),
+  listApprovals: () =>
+    getConnectionMode() === "standalone" ? standalone.listApprovals() : request("/api/approvals"),
   decideApproval: (id, decision, note = "") =>
-    request(`/api/approvals/${encodeURIComponent(id)}/decide`, {
-      method: "POST",
-      body: JSON.stringify({ decision, note }),
-    }),
+    getConnectionMode() === "standalone"
+      ? standalone.decideApproval(id, decision, note)
+      : request(`/api/approvals/${encodeURIComponent(id)}/decide`, {
+          method: "POST",
+          body: JSON.stringify({ decision, note }),
+        }),
 
-  listCalls: () => request("/api/calls"),
+  listCalls: () =>
+    getConnectionMode() === "standalone" ? standalone.listCalls() : request("/api/calls"),
   createCall: (payload) =>
-    request("/api/calls", { method: "POST", body: JSON.stringify(payload) }),
+    getConnectionMode() === "standalone"
+      ? standalone.createCall(payload)
+      : request("/api/calls", { method: "POST", body: JSON.stringify(payload) }),
 
-  listMemories: () => request("/api/memories"),
+  listMemories: () =>
+    getConnectionMode() === "standalone" ? standalone.listMemories() : request("/api/memories"),
   createMemory: (payload) =>
-    request("/api/memories", { method: "POST", body: JSON.stringify(payload) }),
-  deleteMemory: (id) => request(`/api/memories/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    getConnectionMode() === "standalone"
+      ? standalone.createMemory(payload)
+      : request("/api/memories", { method: "POST", body: JSON.stringify(payload) }),
+  deleteMemory: (id) =>
+    getConnectionMode() === "standalone"
+      ? standalone.deleteMemory(id)
+      : request(`/api/memories/${encodeURIComponent(id)}`, { method: "DELETE" }),
 
-  listContacts: () => request("/api/contacts"),
+  listContacts: () =>
+    getConnectionMode() === "standalone" ? standalone.listContacts() : request("/api/contacts"),
   createContact: (payload) =>
-    request("/api/contacts", { method: "POST", body: JSON.stringify(payload) }),
-  deleteContact: (id) => request(`/api/contacts/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    getConnectionMode() === "standalone"
+      ? standalone.createContact(payload)
+      : request("/api/contacts", { method: "POST", body: JSON.stringify(payload) }),
+  deleteContact: (id) =>
+    getConnectionMode() === "standalone"
+      ? standalone.deleteContact(id)
+      : request(`/api/contacts/${encodeURIComponent(id)}`, { method: "DELETE" }),
 
-  listTasks: () => request("/api/tasks"),
+  listTasks: () =>
+    getConnectionMode() === "standalone" ? standalone.listTasks() : request("/api/tasks"),
   createTask: (payload) =>
-    request("/api/tasks", { method: "POST", body: JSON.stringify({ ...payload }) }),
+    getConnectionMode() === "standalone"
+      ? standalone.createTask(payload)
+      : request("/api/tasks", { method: "POST", body: JSON.stringify({ ...payload }) }),
   patchTask: (id, payload) =>
-    request(`/api/tasks/${encodeURIComponent(id)}`, {
-      method: "PATCH",
-      body: JSON.stringify(payload),
-    }),
-  deleteTask: (id) => request(`/api/tasks/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    getConnectionMode() === "standalone"
+      ? standalone.patchTask(id, payload)
+      : request(`/api/tasks/${encodeURIComponent(id)}`, {
+          method: "PATCH",
+          body: JSON.stringify(payload),
+        }),
+  deleteTask: (id) =>
+    getConnectionMode() === "standalone"
+      ? standalone.deleteTask(id)
+      : request(`/api/tasks/${encodeURIComponent(id)}`, { method: "DELETE" }),
 
-  browserState: () => request("/api/browser/state"),
+  browserState: () =>
+    getConnectionMode() === "standalone" ? standalone.browserState() : request("/api/browser/state"),
   browserNavigate: (url) =>
-    request("/api/browser/navigate", { method: "POST", body: JSON.stringify({ url }) }),
+    getConnectionMode() === "standalone"
+      ? Promise.resolve({ ok: false, available: false, error: "원격 서버 모드에서 사용할 수 있습니다." })
+      : request("/api/browser/navigate", { method: "POST", body: JSON.stringify({ url }) }),
   browserClickPoint: (x, y) =>
-    request("/api/browser/click", { method: "POST", body: JSON.stringify({ x, y }) }),
+    getConnectionMode() === "standalone"
+      ? Promise.resolve({ ok: false, available: false })
+      : request("/api/browser/click", { method: "POST", body: JSON.stringify({ x, y }) }),
   browserType: (text, pressEnter = false) =>
-    request("/api/browser/type", {
-      method: "POST",
-      body: JSON.stringify({ selector: "", text, press_enter: pressEnter }),
-    }),
-  browserScreenshot: () => request("/api/browser/screenshot", { method: "POST", body: "{}" }),
+    getConnectionMode() === "standalone"
+      ? Promise.resolve({ ok: false, available: false })
+      : request("/api/browser/type", {
+          method: "POST",
+          body: JSON.stringify({ selector: "", text, press_enter: pressEnter }),
+        }),
+  browserScreenshot: () =>
+    getConnectionMode() === "standalone"
+      ? Promise.resolve({ ok: false, available: false })
+      : request("/api/browser/screenshot", { method: "POST", body: "{}" }),
 };
 
 export function connectEvents(handlers) {
-  const source = new EventSource(apiUrl("/api/events"));
+  if (getConnectionMode() === "standalone") {
+    return standalone.connectEvents(handlers);
+  }
+
+  const token = getAccessToken();
+  const baseEvents = apiUrl("/api/events");
+  const eventsUrl = token
+    ? baseEvents + (baseEvents.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(token)
+    : baseEvents;
+
+  const source = new EventSource(eventsUrl);
   const eventNames = [
     "connected",
     "message_created",
