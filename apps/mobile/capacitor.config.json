@@ -1,0 +1,12 @@
+{
+  "appId": "ai.bruno.assistant",
+  "appName": "Bruno AI",
+  "webDir": "web",
+  "server": {
+    "cleartext": true,
+    "androidScheme": "http"
+  },
+  "ios": {
+    "contentInset": "automatic"
+  }
+}

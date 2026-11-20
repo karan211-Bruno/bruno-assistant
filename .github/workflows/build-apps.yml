@@ -1,0 +1,60 @@
+name: Build Bruno AI Apps (6 Platforms)
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            cmd: npm run build:mac
+          - os: windows-latest
+            cmd: npx electron-builder --win nsis zip --x64
+          - os: ubuntu-latest
+            cmd: npx electron-builder --linux AppImage deb --x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: ./scripts/sync_web_assets.sh
+      - working-directory: apps/desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: |
+          npm ci || npm install
+          ${{ matrix.cmd }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.os }}
+          path: apps/desktop/dist/*
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - run: ./scripts/sync_web_assets.sh
+      - working-directory: apps/mobile
+        run: |
+          npm ci || npm install
+          npx cap sync android
+      - working-directory: apps/mobile/android
+        run: ./gradlew assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk

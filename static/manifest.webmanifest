@@ -1,0 +1,17 @@
+{
+  "name": "Bruno AI — 개인 비서",
+  "short_name": "Bruno AI",
+  "description": "Tailscale bruno-sony 기반 폰·태블릿·PC 통합 개인 AI 비서",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0b1110",
+  "theme_color": "#10b981",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

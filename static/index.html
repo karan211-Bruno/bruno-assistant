@@ -1,0 +1,474 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Bruno AI — 개인 비서</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./css/app.css">
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Desktop / Tablet Persistent Sidebar -->
+    <aside class="sidebar" aria-label="주 메뉴">
+      <div class="brand">
+        <img src="./icon.svg" alt="" width="34" height="34" aria-hidden="true">
+        <div>
+          <strong class="brand-title">Bruno AI</strong>
+          <span class="brand-sub" id="sidebar-host-badge">연결 확인 중...</span>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav" aria-label="화면 전환">
+        <button type="button" class="nav-btn is-active" data-tab="chat">
+          <span aria-hidden="true">💬</span>
+          <span>채팅</span>
+        </button>
+        <button type="button" class="nav-btn" data-tab="calls">
+          <span aria-hidden="true">📞</span>
+          <span>전화</span>
+          <span class="badge" id="pending-approvals-badge" hidden>0</span>
+        </button>
+        <button type="button" class="nav-btn" data-tab="tasks">
+          <span aria-hidden="true">✅</span>
+          <span>일정·할일</span>
+        </button>
+        <button type="button" class="nav-btn" data-tab="memory">
+          <span aria-hidden="true">🧠</span>
+          <span>기억·연락처</span>
+        </button>
+        <button type="button" class="nav-btn" data-tab="browser">
+          <span aria-hidden="true">🌐</span>
+          <span>브라우저</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-section">
+        <div class="sidebar-section-head">
+          <span>대화 목록</span>
+          <button type="button" class="btn-ghost btn-sm" id="new-conv-btn">+ 새 대화</button>
+        </div>
+        <div class="conv-list" id="conv-list"></div>
+      </div>
+
+      <div class="sidebar-footer">
+        <button type="button" class="btn-secondary full-width" id="open-settings-sidebar-btn">
+          ⚙️ 설정 및 bruno-sony 연결
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main Workspace -->
+    <div class="main-column">
+      <header class="top-bar">
+        <div class="top-bar-left">
+          <h1 class="page-title" id="page-title">메인 비서</h1>
+          <span class="pill" id="llm-mode-pill">모드 확인 중</span>
+          <button type="button" class="pill pill-muted pill-btn" id="sse-status-pill" title="클릭하여 서버 연결 설정 열기">동기화 연결 중</button>
+        </div>
+        <div class="top-bar-actions toolbar">
+          <button type="button" class="btn-secondary btn-sm" id="quick-call-btn">📞 AI 전화</button>
+          <button type="button" class="btn-secondary btn-sm" id="open-settings-btn">⚙️ 설정</button>
+        </div>
+      </header>
+
+      <div class="connection-banner" id="connection-banner" hidden>
+        <div class="connection-banner-body">
+          <strong id="connection-banner-title">서버에 연결할 수 없습니다</strong>
+          <p class="muted" id="connection-banner-desc"></p>
+        </div>
+        <div class="toolbar">
+          <button type="button" class="btn-primary btn-sm" data-preset-url="https://bruno-sony.tail617e7a.ts.net">bruno-sony (HTTPS)</button>
+          <button type="button" class="btn-secondary btn-sm" data-preset-url="http://100.93.138.87:8765">bruno-sony (IP)</button>
+          <button type="button" class="btn-secondary btn-sm" data-preset-url="http://127.0.0.1:8765">로컬 (127.0.0.1:8765)</button>
+          <button type="button" class="btn-secondary btn-sm" id="banner-open-settings-btn">직접 설정</button>
+          <button type="button" class="btn-ghost btn-sm" id="banner-dismiss-btn" aria-label="배너 닫기">닫기</button>
+        </div>
+      </div>
+
+      <div class="toast-region" id="toast-region" aria-live="polite"></div>
+
+      <main class="main-area" id="main-area">
+        <!-- TAB 1: Chat -->
+        <section class="tab-panel is-active" id="tab-chat" aria-label="AI 비서 채팅">
+          <div class="chat-scroll" id="chat-scroll">
+            <div class="approvals-tray" id="approvals-tray"></div>
+            <div class="messages-list" id="messages-list"></div>
+            <div class="agent-thinking" id="agent-thinking" hidden></div>
+          </div>
+
+          <div class="chat-composer-wrap">
+            <div class="quick-prompts" aria-label="빠른 예시 명령">
+              <button type="button" class="chip-btn" data-prompt="오늘 저녁 7시 2명 식당 예약 전화해줘">📞 식당 예약 전화</button>
+              <button type="button" class="chip-btn" data-prompt="1분 뒤 물 마시기 알림 등록해줘">⏰ 알림 등록</button>
+              <button type="button" class="chip-btn" data-prompt="나는 매운 음식을 잘 못 먹는다고 기억해줘">🧠 취향 기억</button>
+              <button type="button" class="chip-btn" data-prompt="강남역 조용한 카페 검색해줘">🔍 웹 검색</button>
+            </div>
+            <form class="chat-form" id="chat-form">
+              <label for="chat-input" class="sr-only">비서에게 보낼 메시지</label>
+              <textarea id="chat-input" rows="1" placeholder="브루노 비서에게 시킬 일을 입력하세요... (예: 홍길동에게 오후 3시 회의 확인 전화해줘)" enterkeyhint="send"></textarea>
+              <button type="button" class="btn-secondary icon-square" id="voice-mic-btn" aria-label="음성 입력" title="음성 입력">🎙️</button>
+              <button type="submit" class="btn-primary" id="chat-send-btn">전송</button>
+            </form>
+          </div>
+        </section>
+
+        <!-- TAB 2: Calls -->
+        <section class="tab-panel" id="tab-calls" aria-label="AI 전화 대행" hidden>
+          <div class="panel-header">
+            <div>
+              <h2>AI 전화 대행 &amp; 통화 기록</h2>
+              <p class="muted">AI가 상대방에게 대신 전화를 걸어 예약·문의를 처리하고 대화 내용을 실시간으로 기록합니다.</p>
+            </div>
+            <button type="button" class="btn-primary" id="calls-new-btn">+ 새 AI 전화 걸기</button>
+          </div>
+          <div id="calls-approvals-list" class="stack-gap"></div>
+          <div id="calls-list" class="card-grid"></div>
+        </section>
+
+        <!-- TAB 3: Tasks -->
+        <section class="tab-panel" id="tab-tasks" aria-label="일정 및 할 일" hidden>
+          <div class="panel-header">
+            <div>
+              <h2>일정 · 할 일 · 알림</h2>
+              <p class="muted">설정한 시각이 되면 연결된 모든 폰·태블릿·PC로 실시간 알림을 보냅니다.</p>
+            </div>
+          </div>
+          <form class="inline-form card" id="task-quick-form">
+            <input type="text" id="task-title-input" placeholder="예: 내일 오전 10시 치과 예약 확인" required aria-label="할 일 제목">
+            <input type="datetime-local" id="task-due-input" aria-label="알림 시각 (선택)">
+            <button type="submit" class="btn-primary">추가</button>
+          </form>
+          <div id="tasks-list" class="stack-gap"></div>
+        </section>
+
+        <!-- TAB 4: Memory & Contacts -->
+        <section class="tab-panel" id="tab-memory" aria-label="기억 버블 및 연락처" hidden>
+          <div class="split-grid">
+            <section class="card stack-gap" aria-labelledby="mem-heading">
+              <div class="panel-header compact">
+                <h2 id="mem-heading">🧠 기억 버블</h2>
+                <button type="button" class="btn-secondary btn-sm" id="add-memory-btn">+ 기억 추가</button>
+              </div>
+              <div id="memories-list" class="stack-gap"></div>
+            </section>
+
+            <section class="card stack-gap" aria-labelledby="ct-heading">
+              <div class="panel-header compact">
+                <h2 id="ct-heading">📒 연락처</h2>
+                <button type="button" class="btn-secondary btn-sm" id="add-contact-btn">+ 연락처 추가</button>
+              </div>
+              <div id="contacts-list" class="stack-gap"></div>
+            </section>
+          </div>
+        </section>
+
+        <!-- TAB 5: Browser -->
+        <section class="tab-panel" id="tab-browser" aria-label="샌드박스 브라우저" hidden>
+          <div class="panel-header">
+            <div>
+              <h2>🌐 샌드박스 브라우저 (직접 로그인/승인)</h2>
+              <p class="muted">자동화 도중 로그인·본인인증·결제가 필요할 때 폰이나 태블릿에서 화면을 직접 클릭·입력해 이어갈 수 있습니다.</p>
+            </div>
+            <button type="button" class="btn-secondary btn-sm" id="browser-refresh-btn">새로고침</button>
+          </div>
+
+          <form class="inline-form card" id="browser-nav-form">
+            <input type="url" id="browser-url-input" placeholder="https://example.com" required aria-label="이동할 URL">
+            <button type="submit" class="btn-primary">열기</button>
+          </form>
+
+          <form class="inline-form card" id="browser-type-form">
+            <input type="text" id="browser-type-input" placeholder="현재 포커스된 입력창에 보낼 텍스트" aria-label="브라우저 텍스트 입력">
+            <button type="submit" class="btn-secondary">입력 전송</button>
+          </form>
+
+          <div id="browser-takeover-banner"></div>
+          <div class="browser-viewport card" id="browser-viewport">
+            <p class="muted" id="browser-status-text">브라우저 상태를 불러오는 중...</p>
+            <img id="browser-screenshot-img" alt="샌드박스 브라우저 현재 화면" hidden>
+          </div>
+        </section>
+      </main>
+
+      <!-- Mobile Bottom Tab Bar -->
+      <nav class="mobile-nav" aria-label="모바일 하단 메뉴">
+        <button type="button" class="mobile-nav-btn is-active" data-tab="chat">
+          <span aria-hidden="true">💬</span>
+          <span>채팅</span>
+        </button>
+        <button type="button" class="mobile-nav-btn" data-tab="calls">
+          <span aria-hidden="true">📞</span>
+          <span>전화</span>
+        </button>
+        <button type="button" class="mobile-nav-btn" data-tab="tasks">
+          <span aria-hidden="true">✅</span>
+          <span>할일</span>
+        </button>
+        <button type="button" class="mobile-nav-btn" data-tab="memory">
+          <span aria-hidden="true">🧠</span>
+          <span>기억</span>
+        </button>
+        <button type="button" class="mobile-nav-btn" data-tab="browser">
+          <span aria-hidden="true">🌐</span>
+          <span>웹</span>
+        </button>
+      </nav>
+    </div>
+  </div>
+
+  <!-- MODAL 1: Settings -->
+  <dialog id="settings-dialog" closedby="any" aria-labelledby="settings-title">
+    <form method="dialog" class="dialog-header">
+      <h2 id="settings-title">⚙️ Bruno AI 설정</h2>
+      <button type="submit" class="btn-ghost" value="close" aria-label="닫기">✕</button>
+    </form>
+    <form id="settings-form" class="dialog-body stack-gap">
+      <fieldset class="card stack-gap">
+        <legend>🔗 연결 서버 주소 (네이티브 앱 / 원격 서버)</legend>
+        <label class="field">
+          <span>Bruno AI 서버 URL (웹 브라우저 기본 사용 시 비워두기)</span>
+          <input type="url" id="server-url-input" autofocus placeholder="https://bruno-sony.tail617e7a.ts.net">
+        </label>
+        <div class="toolbar">
+          <button type="button" class="btn-secondary btn-sm" data-settings-preset="https://bruno-sony.tail617e7a.ts.net">bruno-sony HTTPS</button>
+          <button type="button" class="btn-secondary btn-sm" data-settings-preset="http://100.93.138.87:8765">bruno-sony IP</button>
+          <button type="button" class="btn-secondary btn-sm" data-settings-preset="http://127.0.0.1:8765">로컬 Mac/PC</button>
+          <button type="button" class="btn-primary btn-sm" id="test-server-btn">연결 테스트</button>
+        </div>
+        <p class="muted" id="server-test-result"></p>
+      </fieldset>
+
+      <fieldset class="card stack-gap">
+        <legend>사용자 프로필 &amp; 안전 설정</legend>
+        <label class="field">
+          <span>사용자 호칭</span>
+          <input type="text" name="user_name" placeholder="브루노">
+        </label>
+        <label class="field">
+          <span>내 연락처 (선택)</span>
+          <input type="tel" name="user_phone" placeholder="010-0000-0000">
+        </label>
+        <label class="checkbox-row">
+          <input type="checkbox" name="require_call_approval">
+          <span>AI가 전화를 걸기 전 항상 내 승인 받기 (권장)</span>
+        </label>
+        <label class="checkbox-row">
+          <input type="checkbox" name="auto_speak">
+          <span>비서 답변을 음성으로 자동 읽기 (TTS)</span>
+        </label>
+      </fieldset>
+
+      <fieldset class="card stack-gap">
+        <legend>AI 모델 (LLM)</legend>
+        <label class="field">
+          <span>기본 모델 모드</span>
+          <select name="llm_provider">
+            <option value="auto">자동 선택 (API 키 감지 → 없으면 데모)</option>
+            <option value="gemini">Google Gemini</option>
+            <option value="openai">OpenAI GPT</option>
+            <option value="anthropic">Anthropic Claude</option>
+            <option value="ollama">로컬 Ollama</option>
+            <option value="demo">로컬 데모 모드 (API 키 불필요)</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Gemini API Key <small id="hint-gemini_api_key" class="muted"></small></span>
+          <input type="password" name="gemini_api_key" autocomplete="off" placeholder="변경하려면 새 키 입력">
+        </label>
+        <label class="field">
+          <span>OpenAI API Key <small id="hint-openai_api_key" class="muted"></small></span>
+          <input type="password" name="openai_api_key" autocomplete="off" placeholder="변경하려면 새 키 입력">
+        </label>
+        <label class="field">
+          <span>Anthropic API Key <small id="hint-anthropic_api_key" class="muted"></small></span>
+          <input type="password" name="anthropic_api_key" autocomplete="off" placeholder="변경하려면 새 키 입력">
+        </label>
+        <label class="field">
+          <span>Ollama 서버 URL</span>
+          <input type="url" name="ollama_base_url" placeholder="http://127.0.0.1:11434">
+        </label>
+      </fieldset>
+
+      <fieldset class="card stack-gap">
+        <legend>AI 전화 발신 연동</legend>
+        <label class="field">
+          <span>전화 발신 방식</span>
+          <select name="telephony_provider">
+            <option value="simulation">시뮬레이션 모드 (무료 테스트)</option>
+            <option value="vapi">Vapi (가장 빠른 AI 전화)</option>
+            <option value="retell">Retell AI</option>
+            <option value="twilio_realtime">Twilio + OpenAI Realtime (직접 브리지)</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Vapi API Key <small id="hint-vapi_api_key" class="muted"></small></span>
+          <input type="password" name="vapi_api_key" autocomplete="off" placeholder="Vapi Private Key">
+        </label>
+        <label class="field">
+          <span>Vapi Phone Number ID</span>
+          <input type="text" name="vapi_phone_number_id" placeholder="Vapi에서 발급한 발신번호 ID">
+        </label>
+        <label class="field">
+          <span>Retell API Key <small id="hint-retell_api_key" class="muted"></small></span>
+          <input type="password" name="retell_api_key" autocomplete="off" placeholder="Retell API Key">
+        </label>
+        <div class="two-col">
+          <label class="field">
+            <span>Retell 발신번호</span>
+            <input type="text" name="retell_from_number" placeholder="+82...">
+          </label>
+          <label class="field">
+            <span>Retell Agent ID</span>
+            <input type="text" name="retell_agent_id" placeholder="agent_...">
+          </label>
+        </div>
+        <div class="two-col">
+          <label class="field">
+            <span>Twilio Account SID</span>
+            <input type="text" name="twilio_account_sid" placeholder="AC...">
+          </label>
+          <label class="field">
+            <span>Twilio 발신번호</span>
+            <input type="text" name="twilio_from_number" placeholder="+1... 또는 +82...">
+          </label>
+        </div>
+        <label class="field">
+          <span>Twilio Auth Token <small id="hint-twilio_auth_token" class="muted"></small></span>
+          <input type="password" name="twilio_auth_token" autocomplete="off" placeholder="Twilio Auth Token">
+        </label>
+        <label class="field">
+          <span>Public HTTPS Base URL (Tailscale Funnel)</span>
+          <input type="url" name="public_base_url" placeholder="https://bruno-sony.tail617e7a.ts.net">
+        </label>
+      </fieldset>
+
+      <div class="card stack-gap">
+        <strong>🖥️ bruno-sony Tailscale 서버 정보</strong>
+        <p class="muted">이 서버를 <code>bruno-sony</code>에 배포하면 모든 기기에서 <code>https://bruno-sony.tail617e7a.ts.net</code> 주소로 접속할 수 있습니다.</p>
+        <div id="settings-health-info" class="code-box"></div>
+      </div>
+
+      <div class="dialog-actions">
+        <button type="button" class="btn-secondary" id="settings-cancel-btn">취소</button>
+        <button type="submit" class="btn-primary">설정 저장</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- MODAL 2: Direct AI Call Composer -->
+  <dialog id="call-dialog" closedby="any" aria-labelledby="call-dialog-title">
+    <form method="dialog" class="dialog-header">
+      <h2 id="call-dialog-title">📞 새 AI 전화 걸기</h2>
+      <button type="submit" class="btn-ghost" value="close" aria-label="닫기">✕</button>
+    </form>
+    <form id="call-form" class="dialog-body stack-gap">
+      <label class="field">
+        <span>저장된 연락처에서 선택 (선택)</span>
+        <select id="call-contact-select">
+          <option value="">직접 입력</option>
+        </select>
+      </label>
+      <div class="two-col">
+        <label class="field">
+          <span>상대방 / 매장 이름</span>
+          <input type="text" id="call-recipient-input" placeholder="예: 단골 파스타집" autofocus>
+        </label>
+        <label class="field">
+          <span>전화번호 *</span>
+          <input type="tel" id="call-phone-input" required placeholder="02-123-4567 또는 010-1234-5678">
+        </label>
+      </div>
+      <label class="field">
+        <span>상황 템플릿</span>
+        <select id="call-template-select">
+          <option value="">직접 작성</option>
+          <option value="오늘 저녁 7시 2명 예약 가능 여부 확인 및 예약 진행">🍽️ 식당 예약</option>
+          <option value="오늘 영업시간 및 현재 대기/재고 여부 문의">🕒 영업시간/재고 문의</option>
+          <option value="진료 예약 변경 가능 여부 확인">🏥 병원 예약 확인</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>통화 목적 *</span>
+        <textarea id="call-goal-input" rows="2" required placeholder="AI가 상대방에게 전달하고 확인해야 할 핵심 내용"></textarea>
+      </label>
+      <label class="field">
+        <span>추가 멘트/조건 (선택)</span>
+        <input type="text" id="call-script-input" placeholder="예: 창가 자리면 좋겠고 알레르기는 없습니다">
+      </label>
+      <div class="dialog-actions">
+        <button type="button" class="btn-secondary" id="call-cancel-btn">취소</button>
+        <button type="submit" class="btn-primary">AI 전화 시작</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- MODAL 3: Add Contact -->
+  <dialog id="contact-dialog" closedby="any" aria-labelledby="contact-dialog-title">
+    <form method="dialog" class="dialog-header">
+      <h2 id="contact-dialog-title">📒 연락처 추가</h2>
+      <button type="submit" class="btn-ghost" value="close" aria-label="닫기">✕</button>
+    </form>
+    <form id="contact-form" class="dialog-body stack-gap">
+      <label class="field">
+        <span>이름 / 상호명 *</span>
+        <input type="text" id="contact-name-input" required autofocus placeholder="예: 엄마 또는 단골 식당">
+      </label>
+      <label class="field">
+        <span>전화번호 *</span>
+        <input type="tel" id="contact-phone-input" required placeholder="010-1234-5678">
+      </label>
+      <label class="field">
+        <span>관계 / 분류</span>
+        <input type="text" id="contact-relation-input" placeholder="가족, 식당, 병원, 회사 등">
+      </label>
+      <label class="field">
+        <span>메모</span>
+        <input type="text" id="contact-notes-input" placeholder="예: 매운 음식 제외">
+      </label>
+      <div class="dialog-actions">
+        <button type="button" class="btn-secondary" id="contact-cancel-btn">취소</button>
+        <button type="submit" class="btn-primary">저장</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- MODAL 4: Add Memory -->
+  <dialog id="memory-dialog" closedby="any" aria-labelledby="memory-dialog-title">
+    <form method="dialog" class="dialog-header">
+      <h2 id="memory-dialog-title">🧠 기억 버블 추가</h2>
+      <button type="submit" class="btn-ghost" value="close" aria-label="닫기">✕</button>
+    </form>
+    <form id="memory-form" class="dialog-body stack-gap">
+      <label class="field">
+        <span>분류</span>
+        <select id="memory-category-input">
+          <option value="preference">취향/선호</option>
+          <option value="schedule">일정/습관</option>
+          <option value="family">가족/지인</option>
+          <option value="health">건강/알레르기</option>
+          <option value="general">일반</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>기억할 내용 *</span>
+        <textarea id="memory-content-input" rows="3" required autofocus placeholder="예: 아메리카노는 항상 디카페인 아이스로 마심"></textarea>
+      </label>
+      <label class="field">
+        <span>태그 (선택)</span>
+        <input type="text" id="memory-tags-input" placeholder="커피, 음식">
+      </label>
+      <div class="dialog-actions">
+        <button type="button" class="btn-secondary" id="memory-cancel-btn">취소</button>
+        <button type="submit" class="btn-primary">기억 저장</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>
